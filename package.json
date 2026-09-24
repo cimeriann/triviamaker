@@ -1,0 +1,21 @@
+{
+  "name": "triviamaker",
+  "version": "1.0.0",
+  "description": "Friend-sharing trivia game MVP",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node src/server.js",
+    "test": "node -e \"console.log('No tests yet')\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "http://localhost:26831/cimeriann/triviamaker"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}

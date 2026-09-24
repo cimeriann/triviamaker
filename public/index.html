@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TriviaMaker</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header>
+        <h1>TriviaMaker</h1>
+        <p>Create trivia, share a link, and play with friends.</p>
+      </header>
+
+      <section id="alerts"></section>
+
+      <section class="card" id="creator-card">
+        <h2>Create or Edit Trivia</h2>
+        <form id="quiz-form">
+          <input type="hidden" id="quiz-id" />
+          <input type="hidden" id="edit-token" />
+
+          <label>Creator name
+            <input id="creator-name" maxlength="60" placeholder="Your name" />
+          </label>
+
+          <label>Title
+            <input id="quiz-title" maxlength="100" required placeholder="Friday Night Trivia" />
+          </label>
+
+          <label>Description
+            <textarea id="quiz-description" maxlength="500" placeholder="Quick game for friends"></textarea>
+          </label>
+
+          <label>Visibility
+            <select id="quiz-visibility">
+              <option value="unlisted">Unlisted (link only)</option>
+              <option value="public">Public</option>
+              <option value="private">Private</option>
+            </select>
+          </label>
+
+          <div id="questions"></div>
+          <button type="button" id="add-question-btn">+ Add question</button>
+
+          <div class="row">
+            <button type="submit" data-action="draft">Save draft</button>
+            <button type="submit" data-action="publish" class="primary">Publish</button>
+          </div>
+        </form>
+
+        <div id="share-box" class="hidden"></div>
+
+        <h3>Your quizzes</h3>
+        <div id="my-quizzes" class="stack small"></div>
+      </section>
+
+      <section class="card" id="play-join-card">
+        <h2>Play Trivia</h2>
+        <label>Share code / slug
+          <input id="play-slug" placeholder="friday-night-abc123" />
+        </label>
+        <label>Display name
+          <input id="play-name" placeholder="Player name" maxlength="40" />
+        </label>
+        <button id="start-game-btn" class="primary">Start game</button>
+
+        <h3>Public quizzes</h3>
+        <div id="public-quizzes" class="stack small"></div>
+      </section>
+
+      <section class="card hidden" id="play-card">
+        <h2 id="play-title">Trivia</h2>
+        <p id="play-progress"></p>
+        <div id="question-box"></div>
+      </section>
+
+      <section class="card hidden" id="result-card">
+        <h2>Results</h2>
+        <p id="score-text"></p>
+        <div id="answer-review" class="stack small"></div>
+        <div class="row">
+          <button id="replay-btn" class="primary">Replay</button>
+          <button id="back-home-btn">Back home</button>
+        </div>
+        <h3>Leaderboard</h3>
+        <div id="leaderboard" class="stack small"></div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
