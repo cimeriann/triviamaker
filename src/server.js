@@ -1,12 +1,15 @@
+const path = require("path");
+// Load settings such as DATABASE_URL from the .env file in the project folder.
+require("dotenv").config({ path: path.join(__dirname, "..", ".env"), quiet: true });
+
 const express = require("express");
 const fs = require("fs");
-const path = require("path");
 const crypto = require("crypto");
+const { COLLECTION_NAMES, collections, connectToDatabase } = require("./db");
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
-const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, "..", "data", "store.json");
-const BACKUP_DIR = process.env.BACKUP_DIR || path.join(__dirname, "..", "data", "backups");
+const DATABASE_URL = process.env.DATABASE_URL;
 const TRUST_PROXY = (process.env.TRUST_PROXY || "false").toLowerCase() === "true";
 
 app.set("trust proxy", TRUST_PROXY);
@@ -24,58 +27,8 @@ function requestLog(req, res, next) {
 }
 app.use(requestLog);
 
-function ensureDirs() {
-  fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
-  fs.mkdirSync(BACKUP_DIR, { recursive: true });
-}
-
-function defaultState() {
-  return {
-    users: [],
-    quizzes: [],
-    sessions: [],
-    createdAt: new Date().toISOString(),
-  };
-}
-
-function readStore() {
-  ensureDirs();
-  if (!fs.existsSync(DATA_FILE)) {
-    const initial = defaultState();
-    fs.writeFileSync(DATA_FILE, JSON.stringify(initial, null, 2), "utf8");
-    return initial;
-  }
-
-  try {
-    const raw = fs.readFileSync(DATA_FILE, "utf8");
-    const parsed = JSON.parse(raw);
-    parsed.users = Array.isArray(parsed.users) ? parsed.users : [];
-    parsed.quizzes = Array.isArray(parsed.quizzes) ? parsed.quizzes : [];
-    parsed.sessions = Array.isArray(parsed.sessions) ? parsed.sessions : [];
-    return parsed;
-  } catch (error) {
-    console.error("Failed to read store.json", error);
-    return defaultState();
-  }
-}
-
-function writeStore(state) {
-  ensureDirs();
-  const tmpFile = `${DATA_FILE}.tmp`;
-  fs.writeFileSync(tmpFile, JSON.stringify(state, null, 2), "utf8");
-  fs.renameSync(tmpFile, DATA_FILE);
-
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const backupFile = path.join(BACKUP_DIR, `store-${stamp}.json`);
-  fs.copyFileSync(DATA_FILE, backupFile);
-
-  const backups = fs.readdirSync(BACKUP_DIR).filter((name) => name.startsWith("store-")).sort();
-  const maxBackups = 20;
-  if (backups.length > maxBackups) {
-    const remove = backups.slice(0, backups.length - maxBackups);
-    remove.forEach((name) => fs.unlinkSync(path.join(BACKUP_DIR, name)));
-  }
-}
+// Leaves out MongoDB's internal _id field; the app uses its own `id` field.
+const WITHOUT_MONGO_ID = { projection: { _id: 0 } };
 
 function newId(prefix) {
   return `${prefix}_${crypto.randomUUID().replace(/-/g, "")}`;
@@ -205,24 +158,23 @@ app.get("/api/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
-app.get("/api/quizzes/public", (_req, res) => {
-  const store = readStore();
-  const quizzes = store.quizzes
-    .filter((quiz) => quiz.status === "published" && quiz.visibility === "public")
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-    .map((quiz) => ({
-      slug: quiz.slug,
-      title: quiz.title,
-      description: quiz.description,
-      questionCount: quiz.questions.length,
-      updatedAt: quiz.updatedAt,
-    }));
+app.get("/api/quizzes/public", async (_req, res) => {
+  const published = await collections.quizzes
+    .find({ status: "published", visibility: "public" })
+    .sort({ updatedAt: -1 })
+    .toArray();
+  const quizzes = published.map((quiz) => ({
+    slug: quiz.slug,
+    title: quiz.title,
+    description: quiz.description,
+    questionCount: quiz.questions.length,
+    updatedAt: quiz.updatedAt,
+  }));
 
   res.json({ quizzes });
 });
 
-app.post("/api/quizzes", (req, res) => {
-  const store = readStore();
+app.post("/api/quizzes", async (req, res) => {
   const shouldPublish = req.body.publish === true;
   const { errors, value } = validateQuizInput(req.body, shouldPublish ? "publish" : "draft");
 
@@ -230,6 +182,7 @@ app.post("/api/quizzes", (req, res) => {
     return res.status(400).json({ errors });
   }
 
+  const now = new Date();
   const quiz = {
     id: newId("quiz"),
     slug: createSlug(value.title),
@@ -241,12 +194,11 @@ app.post("/api/quizzes", (req, res) => {
     creatorName: value.creatorName,
     creatorEditToken: crypto.randomBytes(16).toString("hex"),
     status: shouldPublish ? "published" : "draft",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: now,
+    updatedAt: now,
   };
 
-  store.quizzes.push(quiz);
-  writeStore(store);
+  await collections.quizzes.insertOne(quiz);
 
   return res.status(201).json({
     quiz: {
@@ -258,11 +210,10 @@ app.post("/api/quizzes", (req, res) => {
   });
 });
 
-app.get("/api/quizzes/:quizId/manage", (req, res) => {
+app.get("/api/quizzes/:quizId/manage", async (req, res) => {
   const { quizId } = req.params;
   const editToken = String(req.query.editToken || "");
-  const store = readStore();
-  const quiz = store.quizzes.find((item) => item.id === quizId);
+  const quiz = await collections.quizzes.findOne({ id: quizId }, WITHOUT_MONGO_ID);
 
   if (!quiz) {
     return res.status(404).json({ error: "Quiz not found." });
@@ -275,11 +226,10 @@ app.get("/api/quizzes/:quizId/manage", (req, res) => {
   return res.json({ quiz });
 });
 
-app.put("/api/quizzes/:quizId", (req, res) => {
+app.put("/api/quizzes/:quizId", async (req, res) => {
   const { quizId } = req.params;
   const editToken = String(req.query.editToken || "");
-  const store = readStore();
-  const quiz = store.quizzes.find((item) => item.id === quizId);
+  const quiz = await collections.quizzes.findOne({ id: quizId });
 
   if (!quiz) {
     return res.status(404).json({ error: "Quiz not found." });
@@ -301,9 +251,9 @@ app.put("/api/quizzes/:quizId", (req, res) => {
   quiz.questions = value.questions;
   quiz.creatorName = value.creatorName;
   quiz.status = req.body.publish === true ? "published" : "draft";
-  quiz.updatedAt = new Date().toISOString();
+  quiz.updatedAt = new Date();
 
-  writeStore(store);
+  await collections.quizzes.replaceOne({ id: quiz.id }, quiz);
 
   return res.json({
     quiz: {
@@ -315,10 +265,9 @@ app.put("/api/quizzes/:quizId", (req, res) => {
   });
 });
 
-app.get("/api/play/:slug", rateLimit({ windowMs: 60_000, max: 120, keyPrefix: "quiz-view" }), (req, res) => {
+app.get("/api/play/:slug", rateLimit({ windowMs: 60_000, max: 120, keyPrefix: "quiz-view" }), async (req, res) => {
   const { slug } = req.params;
-  const store = readStore();
-  const quiz = store.quizzes.find((item) => item.slug === slug);
+  const quiz = await collections.quizzes.findOne({ slug });
 
   if (!quiz || quiz.status !== "published") {
     return res.status(404).json({ error: "Quiz not found." });
@@ -331,7 +280,7 @@ app.get("/api/play/:slug", rateLimit({ windowMs: 60_000, max: 120, keyPrefix: "q
   return res.json({ quiz: publicQuizView(quiz) });
 });
 
-app.post("/api/play/:slug/start", rateLimit({ windowMs: 60_000, max: 30, keyPrefix: "quiz-start" }), (req, res) => {
+app.post("/api/play/:slug/start", rateLimit({ windowMs: 60_000, max: 30, keyPrefix: "quiz-start" }), async (req, res) => {
   const { slug } = req.params;
   const displayName = String(req.body.displayName || "").trim();
 
@@ -343,8 +292,7 @@ app.post("/api/play/:slug/start", rateLimit({ windowMs: 60_000, max: 30, keyPref
     return res.status(400).json({ error: "Display name must be 40 characters or less." });
   }
 
-  const store = readStore();
-  const quiz = store.quizzes.find((item) => item.slug === slug);
+  const quiz = await collections.quizzes.findOne({ slug });
 
   if (!quiz || quiz.status !== "published") {
     return res.status(404).json({ error: "Quiz not found." });
@@ -359,15 +307,14 @@ app.post("/api/play/:slug/start", rateLimit({ windowMs: 60_000, max: 30, keyPref
     quizId: quiz.id,
     quizSlug: quiz.slug,
     displayName,
-    startedAt: new Date().toISOString(),
+    startedAt: new Date(),
     completedAt: null,
     currentQuestion: 0,
     answers: [],
     score: 0,
   };
 
-  store.sessions.push(session);
-  writeStore(store);
+  await collections.sessions.insertOne(session);
 
   return res.status(201).json({
     sessionId: session.id,
@@ -375,12 +322,11 @@ app.post("/api/play/:slug/start", rateLimit({ windowMs: 60_000, max: 30, keyPref
   });
 });
 
-app.post("/api/play/session/:sessionId/answer", rateLimit({ windowMs: 60_000, max: 120, keyPrefix: "quiz-answer" }), (req, res) => {
+app.post("/api/play/session/:sessionId/answer", rateLimit({ windowMs: 60_000, max: 120, keyPrefix: "quiz-answer" }), async (req, res) => {
   const { sessionId } = req.params;
   const selectedIndex = Number(req.body.selectedIndex);
 
-  const store = readStore();
-  const session = store.sessions.find((item) => item.id === sessionId);
+  const session = await collections.sessions.findOne({ id: sessionId });
   if (!session) {
     return res.status(404).json({ error: "Session not found." });
   }
@@ -389,7 +335,7 @@ app.post("/api/play/session/:sessionId/answer", rateLimit({ windowMs: 60_000, ma
     return res.status(400).json({ error: "Session already completed." });
   }
 
-  const quiz = store.quizzes.find((item) => item.id === session.quizId);
+  const quiz = await collections.quizzes.findOne({ id: session.quizId });
   if (!quiz) {
     return res.status(404).json({ error: "Quiz not found." });
   }
@@ -403,6 +349,7 @@ app.post("/api/play/session/:sessionId/answer", rateLimit({ windowMs: 60_000, ma
     return res.status(400).json({ error: "Invalid answer option." });
   }
 
+  const answeredQuestion = session.currentQuestion;
   const isCorrect = question.correctIndex === selectedIndex;
   session.answers.push({
     questionId: question.id,
@@ -416,10 +363,15 @@ app.post("/api/play/session/:sessionId/answer", rateLimit({ windowMs: 60_000, ma
 
   const finished = session.currentQuestion >= quiz.questions.length;
   if (finished) {
-    session.completedAt = new Date().toISOString();
+    session.completedAt = new Date();
   }
 
-  writeStore(store);
+  // Only save if this question is still unanswered, so two quick clicks
+  // can't record two answers for the same question.
+  const saved = await collections.sessions.replaceOne({ id: session.id, currentQuestion: answeredQuestion }, session);
+  if (saved.matchedCount === 0) {
+    return res.status(409).json({ error: "That question was already answered." });
+  }
 
   return res.json({
     correct: isCorrect,
@@ -430,16 +382,15 @@ app.post("/api/play/session/:sessionId/answer", rateLimit({ windowMs: 60_000, ma
   });
 });
 
-app.get("/api/play/session/:sessionId/result", (req, res) => {
+app.get("/api/play/session/:sessionId/result", async (req, res) => {
   const { sessionId } = req.params;
-  const store = readStore();
-  const session = store.sessions.find((item) => item.id === sessionId);
+  const session = await collections.sessions.findOne({ id: sessionId });
 
   if (!session) {
     return res.status(404).json({ error: "Session not found." });
   }
 
-  const quiz = store.quizzes.find((item) => item.id === session.quizId);
+  const quiz = await collections.quizzes.findOne({ id: session.quizId });
   if (!quiz) {
     return res.status(404).json({ error: "Quiz not found." });
   }
@@ -468,29 +419,26 @@ app.get("/api/play/session/:sessionId/result", (req, res) => {
   });
 });
 
-app.get("/api/quizzes/:slug/leaderboard", (req, res) => {
+app.get("/api/quizzes/:slug/leaderboard", async (req, res) => {
   const { slug } = req.params;
-  const store = readStore();
-  const quiz = store.quizzes.find((item) => item.slug === slug);
+  const quiz = await collections.quizzes.findOne({ slug });
 
   if (!quiz || quiz.status !== "published") {
     return res.status(404).json({ error: "Quiz not found." });
   }
 
-  const leaderboard = store.sessions
-    .filter((s) => s.quizId === quiz.id && s.completedAt)
-    .sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      return a.completedAt.localeCompare(b.completedAt);
-    })
-    .slice(0, 10)
-    .map((s, idx) => ({
-      rank: idx + 1,
-      displayName: s.displayName,
-      score: s.score,
-      total: quiz.questions.length,
-      completedAt: s.completedAt,
-    }));
+  const topSessions = await collections.sessions
+    .find({ quizId: quiz.id, completedAt: { $ne: null } })
+    .sort({ score: -1, completedAt: 1 })
+    .limit(10)
+    .toArray();
+  const leaderboard = topSessions.map((s, idx) => ({
+    rank: idx + 1,
+    displayName: s.displayName,
+    score: s.score,
+    total: quiz.questions.length,
+    completedAt: s.completedAt,
+  }));
 
   return res.json({ leaderboard });
 });
@@ -504,6 +452,23 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: "Internal server error" });
 });
 
-app.listen(PORT, () => {
-  console.log(`TriviaMaker running on http://localhost:${PORT}`);
+async function start() {
+  if (!DATABASE_URL) {
+    console.error("DATABASE_URL is not set. Copy .env.example to .env and put your MongoDB connection string in it.");
+    process.exit(1);
+  }
+
+  console.log("Connecting to MongoDB...");
+  const db = await connectToDatabase(DATABASE_URL);
+  console.log(`Connected to MongoDB database "${db.databaseName}" (collections: ${Object.values(COLLECTION_NAMES).join(", ")})`);
+
+  app.listen(PORT, () => {
+    console.log(`TriviaMaker running on http://localhost:${PORT}`);
+  });
+}
+
+start().catch((error) => {
+  console.error("Could not connect to MongoDB:", error.message);
+  console.error("Check DATABASE_URL in your .env file, and that your IP address is allowed under Network Access in MongoDB Atlas.");
+  process.exit(1);
 });

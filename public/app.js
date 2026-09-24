@@ -261,6 +261,9 @@ function renderCurrentQuestion() {
     btn.className = "option-btn";
     btn.textContent = opt;
     btn.addEventListener("click", async () => {
+      // Lock the options while the answer is saved so a double-click can't answer twice.
+      const optionButtons = box.querySelectorAll(".option-btn");
+      optionButtons.forEach((b) => { b.disabled = true; });
       try {
         const result = await api(`/api/play/session/${state.sessionId}/answer`, {
           method: "POST",
@@ -274,6 +277,7 @@ function renderCurrentQuestion() {
           renderCurrentQuestion();
         }
       } catch (err) {
+        optionButtons.forEach((b) => { b.disabled = false; });
         notify(err.message, "error");
       }
     });

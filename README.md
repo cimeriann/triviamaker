@@ -12,22 +12,39 @@ Asynchronous friend-sharing trivia game MVP.
 - Quiz leaderboard (top 10 completed sessions)
 - Public quiz discovery list
 - Basic abuse protection using rate limits on public play endpoints
-- Local JSON persistence with rolling backups
+- MongoDB persistence (works with a free MongoDB Atlas cluster)
 
 ## Tech stack
 
-- Node.js + Express
+- Node.js (20.19 or newer) + Express
 - Vanilla HTML/CSS/JS frontend
-- JSON file datastore (`data/store.json`)
+- MongoDB via the official `mongodb` driver
 
 ## Getting started
 
-```bash
-npm install
-npm run dev
-```
+1. Install dependencies:
 
-Then open `http://localhost:3000`.
+   ```bash
+   npm install
+   ```
+
+2. Create a `.env` file from the example:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+3. Open `.env` and set `DATABASE_URL` to your MongoDB connection string. In MongoDB Atlas it's under **Connect → Drivers**.
+4. In MongoDB Atlas, open **Network Access** and add your current IP address. Otherwise the connection times out.
+5. Start the server:
+
+   ```bash
+   npm run dev
+   ```
+
+   You should see `Connected to MongoDB database "..."`. Then open `http://localhost:3000`.
+
+`.env` is listed in `.gitignore`, so your database password is never committed. Don't put the connection string in any other file that goes to GitHub.
 
 ## Scripts
 
@@ -36,18 +53,18 @@ Then open `http://localhost:3000`.
 
 ## Environment configuration
 
-Copy `.env.example` values into your environment (or `.env` if your shell loads it):
+Set these in `.env` locally, or in your hosting provider's environment settings:
 
 - `PORT`: server port
-- `DATA_FILE`: path to persistent JSON store
-- `BACKUP_DIR`: path for rolling backup snapshots
+- `DATABASE_URL`: MongoDB connection string. The app uses the database named in the URL (the part after `.net/`)
 - `TRUST_PROXY`: `true` if deployed behind a reverse proxy
 
 ## Data model summary
 
-- **users**: reserved for creator/player identity expansion
-- **quizzes**: title/description/questions, visibility, slug, status, creator info, edit token
-- **sessions**: player game sessions, answers, score, completion timestamp
+The app creates its collections (MongoDB's version of tables) the first time it starts. Every name starts with `trivia_`, so the app can share a database with other apps without touching their data:
+
+- **trivia_quizzes**: title/description/questions, visibility, slug, status, creator info, edit token
+- **trivia_sessions**: player game sessions, answers, score, completion timestamp
 
 ## Moderation and access controls
 
@@ -57,10 +74,15 @@ Copy `.env.example` values into your environment (or `.env` if your shell loads 
 
 ## Deployment and reliability notes
 
-- Set environment variables for data and backup paths
-- All writes are atomic (temp file + rename)
-- A timestamped backup is created on each write (latest 20 kept)
+- Set `DATABASE_URL` in your host's environment settings (your `.env` file is not uploaded)
+- Hosting providers connect from IP addresses that can change, so allow them under **Network Access** in Atlas. Many hobby projects allow `0.0.0.0/0` (any address); the database username and password still protect the data
 - Request and error logs are emitted to stdout/stderr
+
+## Troubleshooting
+
+- **`DATABASE_URL is not set`**: create the `.env` file (step 2 above).
+- **Connection times out** (`Server selection timed out`): your IP address isn't allowed under **Network Access** in Atlas.
+- **`bad auth : authentication failed`**: the username or password in `DATABASE_URL` is wrong. If the password contains special characters such as `@`, `:` or `/`, they must be URL-encoded.
 
 ## Launch iteration plan
 
