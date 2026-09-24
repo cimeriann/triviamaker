@@ -12,6 +12,7 @@ const TRUST_PROXY = (process.env.TRUST_PROXY || "false").toLowerCase() === "true
 app.set("trust proxy", TRUST_PROXY);
 app.use(express.json({ limit: "200kb" }));
 app.use(express.static(path.join(__dirname, "..", "public")));
+const SPA_INDEX_HTML = fs.readFileSync(path.join(__dirname, "..", "public", "index.html"), "utf8");
 
 function requestLog(req, res, next) {
   const start = Date.now();
@@ -495,7 +496,7 @@ app.get("/api/quizzes/:slug/leaderboard", (req, res) => {
 });
 
 app.use(rateLimit({ windowMs: 60_000, max: 240, keyPrefix: "spa-fallback" }), (_req, res) => {
-  res.sendFile(path.join(__dirname, "..", "public", "index.html"));
+  res.type("html").send(SPA_INDEX_HTML);
 });
 
 app.use((err, _req, res, _next) => {
