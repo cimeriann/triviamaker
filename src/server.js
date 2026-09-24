@@ -494,7 +494,7 @@ app.get("/api/quizzes/:slug/leaderboard", (req, res) => {
   return res.json({ leaderboard });
 });
 
-app.use((_req, res) => {
+app.use(rateLimit({ windowMs: 60_000, max: 240, keyPrefix: "spa-fallback" }), (_req, res) => {
   res.sendFile(path.join(__dirname, "..", "public", "index.html"));
 });
 
