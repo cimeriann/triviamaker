@@ -1,0 +1,52 @@
+{
+  "users": [],
+  "quizzes": [
+    {
+      "id": "quiz_0b622a2c1d2a445ba03f6db3094a2451",
+      "slug": "test-quiz-9f8f9f",
+      "title": "Test Quiz",
+      "description": "desc",
+      "visibility": "public",
+      "questions": [
+        {
+          "id": "q_1_71a7",
+          "prompt": "2+2?",
+          "options": [
+            "3",
+            "4",
+            "5",
+            "6"
+          ],
+          "correctIndex": 1
+        }
+      ],
+      "creatorId": "user_6a471f3d785e43df890eff3641ed240b",
+      "creatorName": "Alex",
+      "creatorEditToken": "36f45074607e2e567ba368e7ac3350ef",
+      "status": "published",
+      "createdAt": "2026-09-24T18:34:53.067Z",
+      "updatedAt": "2026-09-24T18:34:53.067Z"
+    }
+  ],
+  "sessions": [
+    {
+      "id": "session_1f89bc8eecad42b78bc2dbc5979e810d",
+      "quizId": "quiz_0b622a2c1d2a445ba03f6db3094a2451",
+      "quizSlug": "test-quiz-9f8f9f",
+      "displayName": "Sam",
+      "startedAt": "2026-09-24T18:34:53.104Z",
+      "completedAt": "2026-09-24T18:34:53.138Z",
+      "currentQuestion": 1,
+      "answers": [
+        {
+          "questionId": "q_1_71a7",
+          "selectedIndex": 1,
+          "correctIndex": 1,
+          "isCorrect": true
+        }
+      ],
+      "score": 1
+    }
+  ],
+  "createdAt": "2026-01-01T00:00:00.000Z"
+}
